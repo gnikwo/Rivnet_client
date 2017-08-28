@@ -8,6 +8,7 @@ using System.Management;
 using ConfigurationParser;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace ClientRivnet
 {
@@ -116,7 +117,7 @@ namespace ClientRivnet
     		string netmask = "";
     		string mac = "";
         	string gateway = "";
-        	(trayMenu.Items[1] as ToolStripMenuItem).DropDownItems.Clear();
+            (trayMenu.Items[1] as ToolStripMenuItem).DropDownItems.Clear();
     		foreach(NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
 			{
 				if(ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 || ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
@@ -149,26 +150,51 @@ namespace ClientRivnet
             if (rivnetIPs.Count != 0 && rivnetRequesting)
             {
 
-                foreach(string ip in rivnetIPs)
-                { 
+                bool contacted = false;
+                foreach (string ip in rivnetIPs)
+                {
 
                     try
                     {
-                        string url = "http://" + ip + "/clients_config/gateway/" + mac;
+
+                        //=================== Rivnet servers ==================
+
+                        string url_servers = "http://" + ip + "/clients_config/servers/" + mac;
+                        
+                        log(url_servers);
+                        HttpWebRequest request_servers = (HttpWebRequest)WebRequest.Create(url_servers);
+                        //HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+                        var response_servers = (HttpWebResponse)await Task.Factory.FromAsync<WebResponse>(request_servers.BeginGetResponse, request_servers.EndGetResponse, null).ConfigureAwait(false);
+                        Stream resStream_servers = response_servers.GetResponseStream();
+
+                        // If it reaches that point, the server responded
+
+                        StreamReader reader_servers = new StreamReader(resStream_servers);
+
+                        string servers = reader_servers.ReadToEnd();
+
+                        log("Rivnet servers: " + servers);
+                        rivnetIPs = servers.Split(',').ToList();
+                        contacted = true;
+
+                        write();
+
+                        //=================== Gateway ==================
+
+                        string url_gateway = "http://" + ip + "/clients_config/gateway/" + mac;
 
                         trayMenu.Items[0].ToolTipText = "Interface: " + interfaceName + "\nMac: " + mac + "\nIp: " + localIP + "\nNetmask: " + netmask + "\nGw: " + gateway;
 
-                        log(url);
-                        HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                        log(url_gateway);
+                        HttpWebRequest request_gateway = (HttpWebRequest)WebRequest.Create(url_gateway);
                         //HttpWebResponse response = (HttpWebResponse)request.GetResponse();
-                        var response = (HttpWebResponse)await Task.Factory.FromAsync<WebResponse>(request.BeginGetResponse, request.EndGetResponse, null).ConfigureAwait(false);
-                        Stream resStream = response.GetResponseStream();
+                        var response_gateway = (HttpWebResponse)await Task.Factory.FromAsync<WebResponse>(request_gateway.BeginGetResponse, request_gateway.EndGetResponse, null).ConfigureAwait(false);
+                        Stream resStream_gateway = response_gateway.GetResponseStream();
 
+                        StreamReader reader_gateway = new StreamReader(resStream_gateway);
 
-                        StreamReader reader = new StreamReader(resStream);
-                    
-                        gateway = reader.ReadToEnd();
-                        
+                        gateway = reader_gateway.ReadToEnd();
+
                         log("Gateway choosed: " + gateway);
                         if (activated)
                         {
@@ -185,10 +211,15 @@ namespace ClientRivnet
                     {
 
                         log("Impossible de contacter le serveur Rivnet");
-                        activated = false;
-                        rivnetRequesting = false;
 
                     }
+
+                }
+
+                if (!contacted)
+                {
+
+                    log("Aucun serveur Rivnet n'est accessible.");
 
                 }
 
